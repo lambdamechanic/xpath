@@ -705,6 +705,43 @@ func createBookExample() *TNode {
 	return doc
 }
 
+func Test_StringFunctionPredicatePanic(t *testing.T) {
+	/*
+		Reproduces panic reported in issue:
+		<js-code>back_plate_diametre</js-code><js-code>other text</js-code>
+		XPath: //js-code[string()='back_plate_diametre']
+	*/
+	doc := createNode("", RootNode)
+	body := doc.createChildNode("body", ElementNode) // Add a body or root element
+	jsCode1 := body.createChildNode("js-code", ElementNode)
+	jsCode1.createChildNode("back_plate_diametre", TextNode)
+	jsCode2 := body.createChildNode("js-code", ElementNode)
+	jsCode2.createChildNode("other text", TextNode)
+
+	expr := `//js-code[string()='back_plate_diametre']`
+
+	// We expect this specific node to be selected.
+	// The main goal is to see if iterating triggers the panic.
+	expectedValue := "back_plate_diametre"
+
+	// Using test_xpath_values which iterates internally.
+	// If the panic occurs during iteration, this test will fail/panic.
+	// If the library code is fixed later, this test should pass.
+	test_xpath_values(t, doc, expr, expectedValue)
+
+	// Alternative explicit iteration check (can be commented out if test_xpath_values is sufficient)
+	// iter := Select(createNavigator(doc), expr)
+	// count := 0
+	// for iter.MoveNext() {
+	// 	nav := iter.Current().(*TNodeNavigator)
+	// 	if count == 0 {
+	// 		assertEqual(t, expectedValue, nav.Value())
+	// 	}
+	// 	count++
+	// }
+	// assertEqual(t, 1, count) // Should find exactly one node
+}
+
 // The example document from https://way2tutorial.com/xml/xpath-node-test.php
 func createEmployeeExample() *TNode {
 	/*
