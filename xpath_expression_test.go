@@ -177,7 +177,19 @@ func TestLibraryCrashMinimal(t *testing.T) {
 
 	xpathStr := `//div[string()]`
 
-	// Use the existing test helper to evaluate the XPath
-	// The expression selects the div if its string value ("hi") is true in a boolean context.
-	test_xpath_elements(t, doc, xpathStr, 1)
+	// Evaluate the XPath expression
+	resultNodes := selectNodes(doc, xpathStr)
+
+	// Assert that exactly one node is returned
+	assertEqual(t, 1, len(resultNodes))
+
+	// Assert that the returned node is the correct <div> element
+	if len(resultNodes) == 1 {
+		node := resultNodes[0]
+		assertEqual(t, "div", node.Data) // Check tag name
+
+		// Check text content. Need a navigator to get the value.
+		nav := createNavigator(node)
+		assertEqual(t, "hi", nav.Value())
+	}
 }
