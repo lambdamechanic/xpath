@@ -549,7 +549,8 @@ func TestPropertyXPathDifferential(testingT *testing.T) {
 				testingT.Fatalf("xmllint command execution failed: %v\nStderr: %s", cmdErr, xmllintStderr.String()) // Use testingT for logging
 			}
 		}
-		xmllintResult := xmllintStdout.String()
+		// Trim trailing newline often added by command-line tools
+		xmllintResult := strings.TrimSuffix(xmllintStdout.String(), "\n")
 
 		// 7. Execute antchfx/xpath with the wrapped expression
 		wrappedExprAntchfx, err := Compile(wrappedExprStr)
