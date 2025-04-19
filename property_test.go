@@ -62,46 +62,6 @@ func init() {
 
 // genAxis generates a random XPath axis.
 func genAxis() *rapid.Generator[string] {
-				// Generate a text node. Limit string complexity.
-				text := rapid.String().Draw(r, "textData")
-				return createNode(text, TextNode)
-			}
-
-			// Generate an element node.
-			tag := rapid.SampledFrom(htmlTags).Draw(r, "tag")
-			node := createNode(tag, ElementNode)
-
-			// Add attributes sometimes.
-			if rapid.Bool().Draw(r, "hasAttrs") {
-				numAttrs := rapid.IntRange(0, 3).Draw(r, "numAttrs")
-				for i := 0; i < numAttrs; i++ {
-					attrName := rapid.SampledFrom(htmlAttrs).Draw(r, fmt.Sprintf("attrName%d", i))
-					// Ensure unique attribute names for simplicity, though not strictly required by HTML/XML.
-					// This simple generator might add duplicate attrs, which is fine for crash testing.
-					attrVal := rapid.String().Draw(r, fmt.Sprintf("attrVal%d", i))
-					node.addAttribute(attrName, attrVal)
-				}
-			}
-
-			// Add children sometimes. Limit depth and breadth.
-			depth := rapid.IntRange(0, 3).Draw(r, "depth") // Example depth limit
-			if depth > 0 && rapid.Bool().Draw(r, "hasChildren") {
-				numChildren := rapid.IntRange(1, 5).Draw(r, "numChildren")
-				for i := 0; i < numChildren; i++ {
-					// Recursively generate child node using the recursive generator 'r'.
-					child := genTNode().Draw(r, fmt.Sprintf("child%d", i))
-					// Add the generated child node using the new AddChild method.
-					node.AddChild(child)
-				}
-			}
-
-			return node
-		})
-	})
-}
-
-// genAxis generates a random XPath axis.
-func genAxis() *rapid.Generator[string] {
 	axes := []string{
 		"child", "descendant", "parent", "ancestor", "following-sibling",
 		"preceding-sibling", "following", "preceding", "attribute", "self",
