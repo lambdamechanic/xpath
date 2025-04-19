@@ -193,3 +193,41 @@ func TestLibraryCrashMinimal(t *testing.T) {
 		assertEqual(t, "hi", nav.Value())
 	}
 }
+
+// TestSubstringZeroIndex checks behavior with a start index < 1, which caused a panic.
+// XPath 1.0 positions are 1-based. substring("abc", 0, 2) should be like substring("abc", 1, 2) -> "ab".
+// substring("", 0, 1) should be like substring("", 1, 1) -> "".
+func TestSubstringZeroIndex(t *testing.T) {
+	// Document: <div/> (string value is "")
+	doc := createNode("", RootNode)
+	div := doc.createChildNode("div", ElementNode)
+	div.lines = 1 // Assign a line number for test helper consistency
+
+	// Expression: substring(., 0, 1) -> should evaluate to ""
+	test_xpath_values(t, doc, `substring(., 0, 1)`, "")
+
+	// Additional cases:
+	// Document: <div>abc</div> (string value is "abc")
+	doc2 := createNode("", RootNode)
+	div2 := doc2.createChildNode("div", ElementNode)
+	div2.lines = 1
+	div2.createChildNode("abc", TextNode)
+
+	// substring("abc", 0, 2) -> should be "ab"
+	test_xpath_values(t, doc2, `substring(., 0, 2)`, "ab")
+	// substring("abc", 1, 2) -> should be "ab" (standard case)
+	test_xpath_values(t, doc2, `substring(., 1, 2)`, "ab")
+	// substring("abc", 0, 0) -> should be "" (length 0)
+	test_xpath_values(t, doc2, `substring(., 0, 0)`, "")
+	// substring("abc", -1, 2) -> should be "a" (start=1, length=1 because -1 + 2 = 1)
+	// Note: The spec is a bit ambiguous here. Let's test based on common interpretation.
+	// The length is calculated relative to the *adjusted* start position (1).
+	// So, start=1, end = start + length - 1 = 1 + 2 - 1 = 2. Substring from 1 up to 2 is "ab".
+	// Let's re-read the spec: "the length is rounded... then the substring is returned that starts at the rounded starting position and continues for the rounded length"
+	// So, start=1, length=2 -> "ab"
+	test_xpath_values(t, doc2, `substring(., -1, 2)`, "ab")
+	// substring("abc", 1.5, 2.6) -> round(1.5)=2, round(2.6)=3. Start=2, Length=3. -> "bc"
+	test_xpath_values(t, doc2, `substring(., 1.5, 2.6)`, "bc")
+	// substring("abc", 0.4, 3.7) -> round(0.4)=0->1, round(3.7)=4. Start=1, Length=4 -> "abc"
+	test_xpath_values(t, doc2, `substring(., 0.4, 3.7)`, "abc")
+}
