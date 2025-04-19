@@ -116,8 +116,15 @@ func init() {
 				// Add more comparison operators
 				op := rapid.SampledFrom([]string{"=", "!=", "<", "<=", ">", ">="}).Draw(t, "compOp")
 
-				// Generate a literal for the RHS (comparisons often involve numbers or strings)
-				rhsLiteral := rapid.OneOf(genStringLiteral(), genNumberLiteral()).Draw(t, "rhsLiteral")
+				// Generate a literal for the RHS.
+				// If LHS is text(), RHS should be a string for robust comparison.
+				// Otherwise, it can be a string or a number.
+				var rhsLiteral string
+				if lhsPath == "text()" {
+					rhsLiteral = genStringLiteral().Draw(t, "rhsLiteralString")
+				} else {
+					rhsLiteral = rapid.OneOf(genStringLiteral(), genNumberLiteral()).Draw(t, "rhsLiteralMixed")
+				}
 
 				return fmt.Sprintf("%s %s %s", lhsPath, op, rhsLiteral)
 			}),
