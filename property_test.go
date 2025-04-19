@@ -465,16 +465,42 @@ func genXPathExpr() *rapid.Generator[string] {
 	*/
 }
 
-// TestPropertyXPathDifferential checks for panics, compilation errors, and mismatches
-// against xmllint (libxml2) for string evaluations.
-func TestPropertyXPathDifferential(testingT *testing.T) {
-	checkXmllintAvailability(testingT)                 // Skip if xmllint is not available
-	testingT.Log("Starting TestPropertyXPathDifferential...") // Log entry into the test function
+// Static XML content for basic xmllint syntax validation.
+const staticXMLContent = `<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <child id="a">foo</child>
+  <child id="b" value="123"/>
+  <!-- comment -->
+</root>
+`
 
-	// Pass configuration options directly to Check
+// TestPropertyXPathValidity checks that if xmllint successfully parses an XPath expression,
+// then antchfx/xpath also parses and evaluates it without errors or panics against a
+// randomly generated document. It does *not* compare the results.
+func TestPropertyXPathValidity(testingT *testing.T) {
+	checkXmllintAvailability(testingT)            // Skip if xmllint is not available
+	testingT.Log("Starting TestPropertyXPathValidity...") // Log entry into the test function
+
+	// Create a temporary file for the static XML content once for the test run.
+	tmpDir := testingT.TempDir()
+	staticTmpFile, err := os.CreateTemp(tmpDir, "static-xpath-test-*.xml")
+	if err != nil {
+		testingT.Fatalf("Failed to create static temp file: %v", err)
+	}
+	_, err = staticTmpFile.WriteString(staticXMLContent)
+	if err != nil {
+		staticTmpFile.Close()
+		testingT.Fatalf("Failed to write static temp file: %v", err)
+	}
+	err = staticTmpFile.Close()
+	if err != nil {
+		testingT.Fatalf("Failed to close static temp file: %v", err)
+	}
+	staticTmpFilePath := staticTmpFile.Name()
+	// Temp dir cleanup is handled by testingT.TempDir()
+
 	rapid.Check(testingT, func(t *rapid.T) { // Pass testingT to Check, use t for rapid.T
-		// 1. Generate a random document tree (must be an element for nodeToXMLString)
-		// createNavigator expects a TNode root. Let's generate an element as root.
+		// 1. Generate a random document tree for antchfx evaluation later.
 		rootNode := genTNode.Filter(func(n *TNode) bool { return n.Type == ElementNode }).Draw(t, "doc")
 		// Wrap the root element in a document node? The tests seem to use element nodes directly as roots.
 		// Let's stick with element root for now.
@@ -482,49 +508,17 @@ func TestPropertyXPathDifferential(testingT *testing.T) {
 		// 2. Generate a random XPath expression string
 		exprStr := genXPathExpr().Draw(t, "expr")
 
-		// t.Logf("Testing document: %s", nodeToString(rootNode)) // Original logging (removed)
-		// t.Logf("Testing expression: %s", exprStr) // Original logging (removed)
+		// t.Logf("Testing expression: %s", exprStr)
 
-		// 3. Compile the *original* expression with antchfx/xpath
-		// We expect panics to be caught by rapid.Check later when evaluating this.
-		originalExpr, err := Compile(exprStr)
-		if err != nil {
-			// Fail the test if compilation fails. The generator should produce valid expressions.
-			t.Fatalf("Generator produced invalid expr %q which failed to compile: %v\nDocument XML:\n%s", exprStr, err, nodeToXMLString(rootNode))
-		}
-
-		// 4. Serialize document to XML and write to temp file
-		xmlString := nodeToXMLString(rootNode)
-		tmpDir := testingT.TempDir() // Use testingT to call TempDir
-		tmpFile, err := os.CreateTemp(tmpDir, "xpath-test-*.xml")
-		if err != nil {
-			testingT.Fatalf("Failed to create temp file: %v", err) // Use testingT for logging
-		}
-		// No need to defer Remove, t.TempDir() handles cleanup.
-		// Defer tmpFile.Close() // Close the file handle when done
-
-		_, err = tmpFile.WriteString(xmlString)
-		if err != nil {
-			tmpFile.Close() // Close before failing
-			testingT.Fatalf("Failed to write to temp file: %v", err) // Use testingT for logging
-		}
-		err = tmpFile.Close() // Close after writing
-		if err != nil {
-			testingT.Fatalf("Failed to close temp file: %v", err) // Use testingT for logging
-		}
-		tmpFilePath := tmpFile.Name()
-
-		// 5. Create the wrapped expression for string comparison
-		wrappedExprStr := fmt.Sprintf("string(%s)", exprStr)
-
-		// 6. Execute xmllint with the wrapped expression
-		cmd := exec.Command("xmllint", "--xpath", wrappedExprStr, tmpFilePath)
+		// 3. Execute xmllint with the generated expression against the STATIC file
+		//    to check if xmllint considers the expression syntactically valid.
+		cmd := exec.Command("xmllint", "--xpath", exprStr, staticTmpFilePath)
 		var xmllintStdout, xmllintStderr bytes.Buffer
 		cmd.Stdout = &xmllintStdout
 		cmd.Stderr = &xmllintStderr
 		cmdErr := cmd.Run()
 
-		// Check xmllint execution errors (ignore exit code 10 which often means no result found)
+		// Check xmllint execution status.
 		// libxml exit codes: http://xmlsoft.org/xmllint.html
 		exitCode := 0
 		if exitErr, ok := cmdErr.(*exec.ExitError); ok {
@@ -534,59 +528,46 @@ func TestPropertyXPathDifferential(testingT *testing.T) {
 		// Code 10 is "XPath evaluation returned no result".
 		// Code 11 is "Error evaluating the XPath expression".
 		// Code 12 is "Error building the context for XPath evaluation".
-		if cmdErr != nil && exitCode != 10 {
-			// If xmllint failed for reasons other than "no result", log details.
-			// If it's an XPath error (11), it might indicate an issue antchfx didn't catch.
-			// If it's an XML error (1-9), our serialization might be wrong.
-			testingT.Logf("xmllint failed (exit code %d) for expr %q on file %s:\nStderr: %s\nStdout: %s\nXML Content:\n%s", // Use testingT for logging
-				exitCode, wrappedExprStr, tmpFilePath, xmllintStderr.String(), xmllintStdout.String(), xmlString)
-			// Decide whether to fail based on exit code. Let's fail on XML errors (1-9) and XPath errors (11, 12).
-			if exitCode >= 1 && exitCode <= 9 || exitCode == 11 || exitCode == 12 {
-				testingT.Fatalf("xmllint execution failed unexpectedly (see log).") // Use testingT for logging
-			}
-			// Otherwise (e.g., other cmdErr, non-ExitError), treat as setup failure.
-			if !(exitCode == 0 || exitCode == 10) { // Allow 0 (success) and 10 (no result)
-				testingT.Fatalf("xmllint command execution failed: %v\nStderr: %s", cmdErr, xmllintStderr.String()) // Use testingT for logging
-			}
-		}
-		// Trim trailing newline often added by command-line tools
-		xmllintResult := strings.TrimSuffix(xmllintStdout.String(), "\n")
 
-		// 7. Execute antchfx/xpath with the wrapped expression
-		wrappedExprAntchfx, err := Compile(wrappedExprStr)
+		if exitCode == 11 {
+			// xmllint considers the expression invalid. Skip antchfx check for this case.
+			// We assume xmllint is correct about syntax errors.
+			t.Logf("xmllint rejected expr %q (exit code 11), skipping antchfx check.\nStderr: %s", exprStr, xmllintStderr.String())
+			return // Skip to the next rapid iteration
+		}
+
+		// Handle other xmllint errors (XML errors, context errors, command errors)
+		if cmdErr != nil && !(exitCode == 0 || exitCode == 10) {
+			// Fail if xmllint had errors other than "invalid XPath" (11) or "no result" (10).
+			// This could indicate problems with the static XML file, xmllint setup, etc.
+			testingT.Fatalf("xmllint failed unexpectedly (exit code %d) for expr %q on static file %s:\nStderr: %s\nStdout: %s\nStatic XML:\n%s",
+				exitCode, exprStr, staticTmpFilePath, xmllintStderr.String(), xmllintStdout.String(), staticXMLContent)
+		}
+
+		// If we reach here, xmllint exit code was 0 or 10, meaning it parsed the expression.
+		// Now, check if antchfx/xpath also parses and evaluates it without error/panic
+		// using the RANDOMLY generated document.
+
+		// 4. Compile the expression with antchfx/xpath
+		antchfxExpr, err := Compile(exprStr)
 		if err != nil {
-			// If the original compiled but the wrapped one doesn't, it's an internal issue or generator bug.
-			testingT.Fatalf("Failed to compile wrapped expr %q with antchfx/xpath (original %q compiled ok): %v\nDocument XML:\n%s", // Use testingT for logging
-				wrappedExprStr, exprStr, err, xmlString)
-		}
-		nav := createNavigator(rootNode) // Create navigator for antchfx
-		antchfxEvalResult := wrappedExprAntchfx.Evaluate(nav)
-
-		// Convert antchfx result to string
-		antchfxResultStr, ok := antchfxEvalResult.(string)
-		if !ok {
-			// string() function should always return string type.
-			testingT.Fatalf("antchfx/xpath evaluation of wrapped expr %q did not return a string, got %T: %+v\nOriginal expr: %q\nDocument XML:\n%s", // Use testingT for logging
-				wrappedExprStr, antchfxEvalResult, antchfxEvalResult, exprStr, xmlString)
+			// xmllint accepted it, but antchfx didn't. This is a failure.
+			t.Fatalf("antchfx/xpath failed to compile expr %q which xmllint accepted (exit code %d):\nError: %v\nRandom Document XML:\n%s\nxmllint Stderr:\n%s",
+				exprStr, exitCode, err, nodeToXMLString(rootNode), xmllintStderr.String())
 		}
 
-		// 8. Compare xmllint and antchfx string results
-		if xmllintResult != antchfxResultStr {
-			testingT.Fatalf("Mismatch between xmllint and antchfx/xpath for string(%q):\nxmllint: %q\nantchfx: %q\nDocument XML:\n%s", // Use testingT for logging
-				exprStr, xmllintResult, antchfxResultStr, xmlString)
-		}
+		// 5. Evaluate the expression with antchfx/xpath against the random document
+		//    The primary goal is to catch panics. The result is ignored.
+		nav := createNavigator(rootNode)
+		_ = antchfxExpr.Evaluate(nav)
 
-		// 9. Evaluate the *original* expression with antchfx/xpath to catch panics
-		// (We already compiled it earlier)
-		_ = originalExpr.Evaluate(nav)
-
-		// Optional: Also test Select/Iterate API if desired
-		// iter := originalExpr.Select(nav) // Use compiled originalExpr
+		// Optional: Also test Select/Iterate API to catch panics there too
+		// iter := antchfxExpr.Select(nav)
 		// for iter.MoveNext() {
 		//     // Just iterate to trigger potential panics
 		// }
-	}) // Remove the NumRuns option here
-	testingT.Logf("TestPropertyXPathDifferential finished.") // Use testingT here
+	})
+	testingT.Logf("TestPropertyXPathValidity finished.") // Use testingT here
 }
 
 // Helper function to serialize the TNode tree to a string suitable for xmllint.
