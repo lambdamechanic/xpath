@@ -191,7 +191,7 @@ func TestPropertyXPathCrash(t *testing.T) {
 		// for iter.MoveNext() {
 		//     // Just iterate to trigger potential panics
 		// }
-	}, rapid.NumRuns(1000)) // Pass NumRuns as an option
+	}) // Remove the NumRuns option here
 }
 
 // Helper function to visualize the generated TNode tree (optional)
