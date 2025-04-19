@@ -574,6 +574,21 @@ func (n *TNode) appendNode(data string, typ NodeType) *TNode {
 	return m
 }
 
+// AddChild adds an existing TNode as a child of this node.
+func (n *TNode) AddChild(child *TNode) {
+	child.Parent = n
+	child.PrevSibling = n.LastChild
+	child.NextSibling = nil // Ensure it's the last child initially
+
+	if n.LastChild != nil {
+		n.LastChild.NextSibling = child
+	} else {
+		// This is the first child
+		n.FirstChild = child
+	}
+	n.LastChild = child // Update the last child pointer
+}
+
 func (n *TNode) addAttribute(k, v string) {
 	n.Attr = append(n.Attr, Attribute{k, v})
 }
