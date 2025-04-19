@@ -169,9 +169,10 @@ func TestPropertyXPathCrash(t *testing.T) {
 		// 2. Generate a random XPath expression string
 		exprStr := genXPathExpr().Draw(t, "expr")
 
-		// Log *before* potential skip
-		t.Logf("Testing document: %s", nodeToString(rootNode)) // Helper to visualize doc
-		t.Logf("Testing expression: %s", exprStr)
+		// Log *before* potential skip using fmt.Printf for direct output
+		fmt.Printf("--- Test Iteration ---\nDocument:\n%s\nExpression: %s\n", nodeToString(rootNode), exprStr)
+		// t.Logf("Testing document: %s", nodeToString(rootNode)) // Original logging
+		// t.Logf("Testing expression: %s", exprStr) // Original logging
 
 		// 3. Compile the expression
 		// We expect panics to be caught by rapid.Check
