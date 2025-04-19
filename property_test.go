@@ -165,11 +165,12 @@ func genNodeTest() *rapid.Generator[string] {
 		// Kind tests
 		rapid.Just("node()"),
 		rapid.Just("text()"),
-		rapid.Just("element()"),
-		rapid.Just("attribute()"),
-		// More specific kind tests (less likely to match simple generated docs)
+		// element() and attribute() are XPath 2.0/3.0, not 1.0
+		// rapid.Just("element()"),
+		// rapid.Just("attribute()"),
+		// More specific kind tests (less likely to match simple generated docs, and also XPath 1.0)
 		// rapid.Just("comment()"),
-		// rapid.Just("processing-instruction()"),
+		// rapid.Just("processing-instruction()"), // Often requires a name argument
 	)
 }
 
