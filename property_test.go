@@ -262,14 +262,18 @@ func genSimpleFunctionCall() *rapid.Generator[string] {
 		args := ""
 		numArgs := 0
 		switch funcName {
-		case "string", "boolean", "number", "name", "namespace-uri", "local-name", "normalize-space", "count", "sum":
-			// 0 or 1 argument (often a node-set/path)
+		// Functions that can take 0 or 1 argument (node-set/path)
+		case "string", "boolean", "number", "name", "namespace-uri", "local-name", "normalize-space", "sum":
 			if rapid.Bool().Draw(t, "hasArg") {
-				// Argument can be '.', a relative path, or maybe another function call (later)
 				arg := rapid.OneOf(rapid.Just("."), genRelativePathExpr).Draw(t, "arg0")
 				args = arg
 				numArgs = 1
 			}
+		// count() MUST take exactly 1 argument (node-set)
+		case "count":
+			numArgs = 1
+			// Argument must evaluate to a node-set.
+			args = rapid.OneOf(rapid.Just("."), genRelativePathExpr).Draw(t, "arg0")
 		case "concat": // 2+ arguments
 			numArgs = rapid.IntRange(2, 4).Draw(t, "numConcatArgs")
 			argList := make([]string, numArgs)
