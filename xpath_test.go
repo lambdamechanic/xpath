@@ -720,6 +720,40 @@ func createBookExample() *TNode {
 	return doc
 }
 
+func TestNumericComparisonEmptyNode(t *testing.T) {
+	/*
+		Test numeric comparisons involving nodes with empty string values.
+		XPath 1.0: number("") -> NaN. Comparisons with NaN (except !=) are false.
+		<root>
+			<empty></empty>
+			<nonempty>123</nonempty>
+		</root>
+	*/
+	doc := createNode("", RootNode)
+	root := doc.createChildNode("root", ElementNode)
+	emptyNode := root.createChildNode("empty", ElementNode)
+	emptyNode.lines = 3 // Assign line numbers for potential debugging/identification
+	nonEmptyNode := root.createChildNode("nonempty", ElementNode)
+	nonEmptyNode.lines = 4
+	nonEmptyNode.createChildNode("123", TextNode)
+
+	// Comparisons involving the <empty> node (string value "", numeric value NaN)
+	test_xpath_count(t, doc, `//empty[. < 0]`, 0)  // NaN < 0 is false
+	test_xpath_count(t, doc, `//empty[. > 0]`, 0)  // NaN > 0 is false
+	test_xpath_count(t, doc, `//empty[. <= 0]`, 0) // NaN <= 0 is false
+	test_xpath_count(t, doc, `//empty[. >= 0]`, 0) // NaN >= 0 is false
+	test_xpath_count(t, doc, `//empty[. = 0]`, 0)  // NaN = 0 is false
+	test_xpath_count(t, doc, `//empty[. != 0]`, 1) // NaN != 0 is true
+
+	// Sanity check with the <nonempty> node (string value "123", numeric value 123)
+	test_xpath_count(t, doc, `//nonempty[. < 0]`, 0)   // 123 < 0 is false
+	test_xpath_count(t, doc, `//nonempty[. > 0]`, 1)   // 123 > 0 is true
+	test_xpath_count(t, doc, `//nonempty[. <= 0]`, 0)  // 123 <= 0 is false
+	test_xpath_count(t, doc, `//nonempty[. >= 0]`, 1)  // 123 >= 0 is true
+	test_xpath_count(t, doc, `//nonempty[. = 123]`, 1) // 123 = 123 is true
+	test_xpath_count(t, doc, `//nonempty[. != 123]`, 0) // 123 != 123 is false
+}
+
 func Test_StringFunctionPredicatePanic(t *testing.T) {
 	/*
 		Reproduces panic reported in issue:
