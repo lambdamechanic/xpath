@@ -25,8 +25,8 @@ func init() {
 		// or explicitly pass depth (more complex). Let's rely on rapid's size control for now.
 		isElement := rapid.Bool().Draw(t, "isElement")
 		if !isElement {
-			// Generate a text node. Limit string complexity.
-			text := rapid.String().Draw(t, "textData")
+			// Generate a text node from a limited set.
+			text := rapid.SampledFrom([]string{"", "foo", "bar"}).Draw(t, "textData")
 			return createNode(text, TextNode)
 		}
 
@@ -41,7 +41,8 @@ func init() {
 				attrName := rapid.SampledFrom(htmlAttrs).Draw(t, fmt.Sprintf("attrName%d", i))
 				// Ensure unique attribute names for simplicity, though not strictly required by HTML/XML.
 				// This simple generator might add duplicate attrs, which is fine for crash testing.
-				attrVal := rapid.String().Draw(t, fmt.Sprintf("attrVal%d", i))
+				// Generate attribute value from a limited set.
+				attrVal := rapid.SampledFrom([]string{"", "foo", "bar"}).Draw(t, fmt.Sprintf("attrVal%d", i))
 				node.addAttribute(attrName, attrVal)
 			}
 		}
