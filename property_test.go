@@ -314,8 +314,13 @@ func genSimpleFunctionCall() *rapid.Generator[string] {
 		case "substring": // 2 or 3 arguments (string, number, number?)
 			numArgs = rapid.IntRange(2, 3).Draw(t, "numSubstringArgs")
 			arg1 := rapid.OneOf(rapid.Just("."), genRelativePathExpr, genStringLiteral()).Draw(t, "strArg1")
-			arg2 := genNumberLiteral().Draw(t, "numArg2")
+			// XPath substring index is 1-based. Generate positive integers for start position.
+			// Use a similar range to genNumberLiteral's positive side.
+			startPos := rapid.IntRange(1, 100).Draw(t, "substringStartPos")
+			arg2 := fmt.Sprintf("%d", startPos) // Convert generated int to string
 			if numArgs == 3 {
+				// The third argument (length) can be any number, including negative/zero,
+				// though negative/zero length might result in empty strings. Use genNumberLiteral here.
 				arg3 := genNumberLiteral().Draw(t, "numArg3")
 				args = fmt.Sprintf("%s, %s, %s", arg1, arg2, arg3)
 			} else {
