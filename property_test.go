@@ -156,6 +156,7 @@ func genXPathExpr() *rapid.Generator[string] {
 // TestPropertyXPathCrash checks if evaluating random XPath expressions on random documents causes panics.
 func TestPropertyXPathCrash(t *testing.T) {
 	t.Log("Starting TestPropertyXPathCrash...") // Log entry into the test function
+	var skippedCount int                        // Counter for skipped tests
 	// Pass configuration options directly to Check
 	rapid.Check(t, func(t *rapid.T) {
 		// 1. Generate a random document tree
@@ -167,6 +168,8 @@ func TestPropertyXPathCrash(t *testing.T) {
 
 		// 2. Generate a random XPath expression string
 		exprStr := genXPathExpr().Draw(t, "expr")
+
+		// Log *before* potential skip
 		t.Logf("Testing document: %s", nodeToString(rootNode)) // Helper to visualize doc
 		t.Logf("Testing expression: %s", exprStr)
 
@@ -176,6 +179,7 @@ func TestPropertyXPathCrash(t *testing.T) {
 		if err != nil {
 			// Skip if compilation fails - we're looking for runtime crashes.
 			// Or potentially log it as an interesting case (generator bug?).
+			skippedCount++ // Increment skip counter
 			t.Skipf("Failed to compile generated expr %q: %v", exprStr, err)
 			return
 		}
@@ -192,6 +196,7 @@ func TestPropertyXPathCrash(t *testing.T) {
 		//     // Just iterate to trigger potential panics
 		// }
 	}) // Remove the NumRuns option here
+	t.Logf("TestPropertyXPathCrash finished. Skipped %d iterations due to compile errors.", skippedCount)
 }
 
 // Helper function to visualize the generated TNode tree (optional)
