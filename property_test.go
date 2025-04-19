@@ -1,4 +1,4 @@
-package xpath_test
+package xpath
 
 import (
 	"fmt"
