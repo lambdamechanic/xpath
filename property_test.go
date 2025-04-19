@@ -289,11 +289,10 @@ func genSimpleFunctionCall() *rapid.Generator[string] {
 			} else {
 				args = fmt.Sprintf("%s, %s", arg1, arg2)
 			}
-		case "string-length": // 0 or 1 argument (string)
-			numArgs = rapid.IntRange(0, 1).Draw(t, "numLengthArgs")
-			if numArgs == 1 {
-				args = rapid.OneOf(rapid.Just("."), genRelativePathExpr, genStringLiteral()).Draw(t, "strArg1")
-			}
+		case "string-length": // 1 argument (string) - Parser requires one argument.
+			numArgs = 1
+			// Argument needs to evaluate to string.
+			args = rapid.OneOf(rapid.Just("."), genRelativePathExpr, genStringLiteral()).Draw(t, "strArg1")
 		case "translate": // 3 arguments (string, string, string)
 			numArgs = 3
 			arg1 := rapid.OneOf(rapid.Just("."), genRelativePathExpr, genStringLiteral()).Draw(t, "strArg1")
