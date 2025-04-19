@@ -113,9 +113,10 @@ func init() {
 					rapid.SampledFrom(htmlTags), // Simple element name test
 				).Draw(t, "lhsPath")
 
-				op := rapid.SampledFrom([]string{"=", "!="}).Draw(t, "compOp") // Add <, >, etc. later
+				// Add more comparison operators
+				op := rapid.SampledFrom([]string{"=", "!=", "<", "<=", ">", ">="}).Draw(t, "compOp")
 
-				// Generate a literal for the RHS
+				// Generate a literal for the RHS (comparisons often involve numbers or strings)
 				rhsLiteral := rapid.OneOf(genStringLiteral(), genNumberLiteral()).Draw(t, "rhsLiteral")
 
 				return fmt.Sprintf("%s %s %s", lhsPath, op, rhsLiteral)
@@ -169,7 +170,7 @@ func genNodeTest() *rapid.Generator[string] {
 		// rapid.Just("element()"),
 		// rapid.Just("attribute()"),
 		// More specific kind tests (less likely to match simple generated docs, and also XPath 1.0)
-		// rapid.Just("comment()"),
+		rapid.Just("comment()"), // Enable comment() node test
 		// rapid.Just("processing-instruction()"), // Often requires a name argument
 	)
 }
@@ -232,21 +233,28 @@ func init() {
 			steps[i] = genStep().Draw(t, fmt.Sprintf("step%d", i))
 		}
 		// Join steps with / or //
-		// For simplicity, just use / for now. // adds complexity.
-		return strings.Join(steps, "/")
+		separator := rapid.SampledFrom([]string{"/", "//"}).Draw(t, "separator")
+		// Avoid leading // if the path starts relative, although parser might handle it.
+		// Let's keep it simple: join all with the chosen separator.
+		return strings.Join(steps, separator)
 	})
 }
 
 // genSimpleFunctionCall generates calls to common XPath functions.
 func genSimpleFunctionCall() *rapid.Generator[string] {
 	return rapid.Custom(func(t *rapid.T) string {
-		// Select a function name
+		// Select a function name from the list supported in the README
 		funcName := rapid.SampledFrom([]string{
-			"string", "concat", "starts-with", "contains", "substring-before",
-			"substring-after", "substring", "string-length", "normalize-space",
-			"translate", "boolean", "not", "true", "false", "lang", "number",
-			"sum", "floor", "ceiling", "round", "count", "position", "last",
-			"name", "namespace-uri", "local-name",
+			// Core XPath 1.0
+			"boolean", "ceiling", "concat", "contains", "count", "false", "floor",
+			"last", "local-name", "name", "namespace-uri", "normalize-space",
+			"not", "number", "position", "round", "starts-with", "string",
+			"string-length", "substring", "substring-after", "substring-before",
+			"sum", "translate", "true",
+			// Added from README (potentially XPath 2.0+)
+			"ends-with", "lower-case", "matches", "replace", "reverse", "string-join",
+			// "lang", // Keep lang? README says unsupported, but code might handle it. Let's keep it.
+			"lang",
 		}).Draw(t, "funcName")
 
 		// Generate arguments based on the function
@@ -317,9 +325,42 @@ func genSimpleFunctionCall() *rapid.Generator[string] {
 			numArgs = 1
 			// Argument needs to evaluate to number. Use path or number literal.
 			args = rapid.OneOf(genRelativePathExpr, genNumberLiteral()).Draw(t, "numArg1")
+		// Handle newly added functions (simplified argument generation)
+		case "ends-with": // 2 args (string, string)
+			numArgs = 2
+			arg1 := rapid.OneOf(rapid.Just("."), genRelativePathExpr, genStringLiteral()).Draw(t, "strArg1")
+			arg2 := genStringLiteral().Draw(t, "strArg2")
+			args = fmt.Sprintf("%s, %s", arg1, arg2)
+		case "lower-case": // 1 arg (string)
+			numArgs = 1
+			args = rapid.OneOf(rapid.Just("."), genRelativePathExpr, genStringLiteral()).Draw(t, "strArg1")
+		case "matches": // 2-3 args (string, pattern, flags?) - Generate 2 args for simplicity
+			numArgs = 2
+			arg1 := rapid.OneOf(rapid.Just("."), genRelativePathExpr, genStringLiteral()).Draw(t, "strArg1")
+			// Pattern is a string literal (regex) - keep simple
+			arg2 := genStringLiteral().Draw(t, "regexPattern")
+			args = fmt.Sprintf("%s, %s", arg1, arg2)
+		case "replace": // 3 args (string, pattern, replacement)
+			numArgs = 3
+			arg1 := rapid.OneOf(rapid.Just("."), genRelativePathExpr, genStringLiteral()).Draw(t, "strArg1")
+			arg2 := genStringLiteral().Draw(t, "regexPattern")
+			arg3 := genStringLiteral().Draw(t, "replacementStr")
+			args = fmt.Sprintf("%s, %s, %s", arg1, arg2, arg3)
+		case "reverse": // 1 arg (node-set?) - Treat as string for simplicity? Spec unclear for 1.0 context.
+			// Let's assume it takes a path expression.
+			numArgs = 1
+			args = genRelativePathExpr.Draw(t, "pathArg1")
+		case "string-join": // 2 args (node-set?, separator)
+			numArgs = 2
+			// First arg is often path, second is string literal separator
+			arg1 := genRelativePathExpr.Draw(t, "pathArg1")
+			arg2 := genStringLiteral().Draw(t, "separatorStr")
+			args = fmt.Sprintf("%s, %s", arg1, arg2)
 
 		default:
-			// Fallback for functions not explicitly handled (likely 0 args)
+			// Fallback for functions not explicitly handled (likely 0 args like true, false, position, last)
+			// Check if the function *should* have args based on its name
+			// For now, assume 0 args if not explicitly handled above.
 			numArgs = 0
 		}
 
