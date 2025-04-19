@@ -1,12 +1,25 @@
 package xpath
 
 import (
+	"bytes"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"pgregory.net/rapid"
 )
+
+// Check if xmllint command exists and skip tests if not.
+func checkXmllintAvailability(t *testing.T) {
+	t.Helper()
+	_, err := exec.LookPath("xmllint")
+	if err != nil {
+		t.Skip("xmllint command not found in PATH, skipping differential tests.")
+	}
+}
 
 // Limited set of tags for generation to increase match probability.
 var htmlTags = []string{"div", "p", "span", "a", "b", "i", "table", "tr", "td"}
@@ -453,14 +466,15 @@ func genXPathExpr() *rapid.Generator[string] {
 	*/
 }
 
-// TestPropertyXPathCrash checks if evaluating random XPath expressions on random documents causes panics
-// or if the generator produces expressions that fail to compile.
-func TestPropertyXPathCrash(t *testing.T) {
-	t.Log("Starting TestPropertyXPathCrash...") // Log entry into the test function
+// TestPropertyXPathDifferential checks for panics, compilation errors, and mismatches
+// against xmllint (libxml2) for string evaluations.
+func TestPropertyXPathDifferential(t *testing.T) {
+	checkXmllintAvailability(t)                 // Skip if xmllint is not available
+	t.Log("Starting TestPropertyXPathDifferential...") // Log entry into the test function
+
 	// Pass configuration options directly to Check
 	rapid.Check(t, func(t *rapid.T) {
-		// 1. Generate a random document tree
-		// Need to ensure the root is suitable for navigation (e.g., wrap in a document node?)
+		// 1. Generate a random document tree (must be an element for nodeToXMLString)
 		// createNavigator expects a TNode root. Let's generate an element as root.
 		rootNode := genTNode.Filter(func(n *TNode) bool { return n.Type == ElementNode }).Draw(t, "doc")
 		// Wrap the root element in a document node? The tests seem to use element nodes directly as roots.
@@ -472,23 +486,102 @@ func TestPropertyXPathCrash(t *testing.T) {
 		// t.Logf("Testing document: %s", nodeToString(rootNode)) // Original logging (removed)
 		// t.Logf("Testing expression: %s", exprStr) // Original logging (removed)
 
-		// 3. Compile the expression
-		// We expect panics to be caught by rapid.Check
-		expr, err := Compile(exprStr)
+		// 3. Compile the *original* expression with antchfx/xpath
+		// We expect panics to be caught by rapid.Check later when evaluating this.
+		originalExpr, err := Compile(exprStr)
 		if err != nil {
 			// Fail the test if compilation fails. The generator should produce valid expressions.
-			t.Fatalf("Generator produced invalid expr %q which failed to compile: %v\nDocument:\n%s", exprStr, err, nodeToString(rootNode))
-			// No return needed, Fatalf exits the goroutine.
+			t.Fatalf("Generator produced invalid expr %q which failed to compile: %v\nDocument XML:\n%s", exprStr, err, nodeToXMLString(rootNode))
 		}
 
-		// 4. Create a navigator for the document
-		nav := createNavigator(rootNode)
+		// 4. Serialize document to XML and write to temp file
+		xmlString := nodeToXMLString(rootNode)
+		tmpDir := t.TempDir() // Create a temporary directory cleaned up automatically
+		tmpFile, err := os.CreateTemp(tmpDir, "xpath-test-*.xml")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		// No need to defer Remove, t.TempDir() handles cleanup.
+		// Defer tmpFile.Close() // Close the file handle when done
 
-		// 5. Evaluate the expression - rapid will catch panics here.
-		_ = expr.Evaluate(nav)
+		_, err = tmpFile.WriteString(xmlString)
+		if err != nil {
+			tmpFile.Close() // Close before failing
+			t.Fatalf("Failed to write to temp file: %v", err)
+		}
+		err = tmpFile.Close() // Close after writing
+		if err != nil {
+			t.Fatalf("Failed to close temp file: %v", err)
+		}
+		tmpFilePath := tmpFile.Name()
+
+		// 5. Create the wrapped expression for string comparison
+		wrappedExprStr := fmt.Sprintf("string(%s)", exprStr)
+
+		// 6. Execute xmllint with the wrapped expression
+		cmd := exec.Command("xmllint", "--xpath", wrappedExprStr, tmpFilePath)
+		var xmllintStdout, xmllintStderr bytes.Buffer
+		cmd.Stdout = &xmllintStdout
+		cmd.Stderr = &xmllintStderr
+		cmdErr := cmd.Run()
+
+		// Check xmllint execution errors (ignore exit code 10 which often means no result found)
+		// libxml exit codes: http://xmlsoft.org/xmllint.html
+		exitCode := 0
+		if exitErr, ok := cmdErr.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+		// Codes 1-9 are parsing/validation errors in the XML itself.
+		// Code 10 is "XPath evaluation returned no result".
+		// Code 11 is "Error evaluating the XPath expression".
+		// Code 12 is "Error building the context for XPath evaluation".
+		if cmdErr != nil && exitCode != 10 {
+			// If xmllint failed for reasons other than "no result", log details.
+			// If it's an XPath error (11), it might indicate an issue antchfx didn't catch.
+			// If it's an XML error (1-9), our serialization might be wrong.
+			t.Logf("xmllint failed (exit code %d) for expr %q on file %s:\nStderr: %s\nStdout: %s\nXML Content:\n%s",
+				exitCode, wrappedExprStr, tmpFilePath, xmllintStderr.String(), xmllintStdout.String(), xmlString)
+			// Decide whether to fail based on exit code. Let's fail on XML errors (1-9) and XPath errors (11, 12).
+			if exitCode >= 1 && exitCode <= 9 || exitCode == 11 || exitCode == 12 {
+				t.Fatalf("xmllint execution failed unexpectedly (see log).")
+			}
+			// Otherwise (e.g., other cmdErr, non-ExitError), treat as setup failure.
+			if !(exitCode == 0 || exitCode == 10) { // Allow 0 (success) and 10 (no result)
+				t.Fatalf("xmllint command execution failed: %v\nStderr: %s", cmdErr, xmllintStderr.String())
+			}
+		}
+		xmllintResult := xmllintStdout.String()
+
+		// 7. Execute antchfx/xpath with the wrapped expression
+		wrappedExprAntchfx, err := Compile(wrappedExprStr)
+		if err != nil {
+			// If the original compiled but the wrapped one doesn't, it's an internal issue or generator bug.
+			t.Fatalf("Failed to compile wrapped expr %q with antchfx/xpath (original %q compiled ok): %v\nDocument XML:\n%s",
+				wrappedExprStr, exprStr, err, xmlString)
+		}
+		nav := createNavigator(rootNode) // Create navigator for antchfx
+		antchfxEvalResult := wrappedExprAntchfx.Evaluate(nav)
+
+		// Convert antchfx result to string
+		antchfxResultStr, ok := antchfxEvalResult.(string)
+		if !ok {
+			// string() function should always return string type.
+			t.Fatalf("antchfx/xpath evaluation of wrapped expr %q did not return a string, got %T: %+v\nOriginal expr: %q\nDocument XML:\n%s",
+				wrappedExprStr, antchfxEvalResult, antchfxEvalResult, exprStr, xmlString)
+		}
+
+		// 8. Compare xmllint and antchfx string results
+		if xmllintResult != antchfxResultStr {
+			t.Fatalf("Mismatch between xmllint and antchfx/xpath for string(%q):\nxmllint: %q\nantchfx: %q\nDocument XML:\n%s",
+				exprStr, xmllintResult, antchfxResultStr, xmlString)
+		}
+
+		// 9. Evaluate the *original* expression with antchfx/xpath to catch panics
+		// (We already compiled it earlier)
+		_ = originalExpr.Evaluate(nav)
 
 		// Optional: Also test Select/Iterate API if desired
-		// iter := xpath.Select(nav, exprStr) // Assuming Select exists and takes string
+		// iter := originalExpr.Select(nav) // Use compiled originalExpr
 		// for iter.MoveNext() {
 		//     // Just iterate to trigger potential panics
 		// }
@@ -496,41 +589,85 @@ func TestPropertyXPathCrash(t *testing.T) {
 	t.Logf("TestPropertyXPathCrash finished.")
 }
 
-// Helper function to visualize the generated TNode tree (optional)
-func nodeToString(node *TNode) string {
+// Helper function to serialize the TNode tree to a string suitable for xmllint.
+// Adds an XML declaration and wraps content in a single <doc> root.
+func nodeToXMLString(node *TNode) string {
 	var sb strings.Builder
+	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n") // XML declaration
+	sb.WriteString("<doc>\n")                                       // Wrapper root element
+
 	var printNode func(*TNode, int)
 	printNode = func(n *TNode, indent int) {
 		sb.WriteString(strings.Repeat("  ", indent))
 		switch n.Type {
 		case ElementNode:
-			sb.WriteString("<" + n.Data)
+			// Ensure element names are XML-compatible (basic check)
+			tagName := n.Data
+			if tagName == "" {
+				tagName = "unknown" // Handle empty tag names if generator allows
+			}
+			sb.WriteString("<" + tagName)
+			// Keep track of added attribute names to avoid duplicates which xmllint might dislike
+			addedAttrs := make(map[string]bool)
 			for _, attr := range n.Attr {
-				sb.WriteString(fmt.Sprintf(" %s=%q", attr.Key, attr.Value))
+				// Ensure attr names are XML-compatible (basic check) and not duplicated
+				attrName := attr.Key
+				if attrName == "" || addedAttrs[attrName] {
+					continue // Skip empty or duplicate attribute names
+				}
+				addedAttrs[attrName] = true
+				// Use standard Go quoting which handles XML entities (&, <, >, ", ')
+				sb.WriteString(fmt.Sprintf(" %s=%q", attrName, attr.Value))
 			}
 			if n.FirstChild == nil {
 				sb.WriteString("/>\n")
 			} else {
 				sb.WriteString(">\n")
 				for child := n.FirstChild; child != nil; child = child.NextSibling {
-					printNode(child, indent+1)
+					printNode(child, indent+1) // Indent children
 				}
-				sb.WriteString(strings.Repeat("  ", indent))
-				sb.WriteString("</" + n.Data + ">\n")
+				sb.WriteString(strings.Repeat("  ", indent)) // Indent closing tag
+				sb.WriteString("</" + tagName + ">\n")
 			}
 		case TextNode:
-			sb.WriteString(fmt.Sprintf("%q\n", n.Data))
+			// Escape text content for XML
+			escapedData := escapeXMLText(n.Data)
+			sb.WriteString(escapedData + "\n") // No quotes around text nodes
 		case CommentNode:
-			sb.WriteString(fmt.Sprintf("<!--%s-->\n", n.Data))
-		case RootNode: // Use RootNode constant
-			sb.WriteString("Document:\n")
-			for child := n.FirstChild; child != nil; child = child.NextSibling {
-				printNode(child, indent+1)
-			}
+			// Ensure comment data doesn't contain "--"
+			commentData := strings.ReplaceAll(n.Data, "--", "- -")
+			sb.WriteString(fmt.Sprintf("<!--%s-->\n", commentData))
+		// case RootNode: // RootNode is handled by the <doc> wrapper now
+		// We shouldn't generate RootNode types directly inside the tree anyway
 		default:
-			sb.WriteString(fmt.Sprintf("Unknown<%d>%s\n", n.Type, n.Data))
+			// Ignore unknown node types for XML serialization
+			// sb.WriteString(fmt.Sprintf("<!-- Unknown Node Type %d: %s -->\n", n.Type, n.Data))
 		}
 	}
-	printNode(node, 0)
+
+	// Start printing from the actual generated root node, indented under <doc>
+	printNode(node, 1)
+
+	sb.WriteString("</doc>\n") // Close wrapper root element
 	return sb.String()
+}
+
+// escapeXMLText escapes characters problematic for XML text nodes.
+func escapeXMLText(s string) string {
+	var buf bytes.Buffer
+	for _, r := range s {
+		switch r {
+		case '&':
+			buf.WriteString("&amp;")
+		case '<':
+			buf.WriteString("&lt;")
+		case '>':
+			buf.WriteString("&gt;")
+		// Standard Go %q handles quotes, but they are allowed in text nodes.
+		// Only strictly need to escape &, <, > in text content.
+		default:
+			buf.WriteRune(r)
+		}
+	}
+	return buf.String()
 }
