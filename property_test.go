@@ -159,7 +159,7 @@ func TestPropertyXPathCrash(t *testing.T) {
 		// 1. Generate a random document tree
 		// Need to ensure the root is suitable for navigation (e.g., wrap in a document node?)
 		// createNavigator expects a TNode root. Let's generate an element as root.
-		rootNode := genTNodeGenerator.Filter(func(n *TNode) bool { return n.Type == ElementNode }).Draw(t, "doc")
+		rootNode := genTNode.Filter(func(n *TNode) bool { return n.Type == ElementNode }).Draw(t, "doc")
 		// Wrap the root element in a document node? The tests seem to use element nodes directly as roots.
 		// Let's stick with element root for now.
 
