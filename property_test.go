@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"pgregory.net/rapid"
-
-	"github.com/antchfx/xpath"
 )
 
 // Limited set of tags for generation to increase match probability.
@@ -26,12 +24,12 @@ func genTNode() *rapid.Generator[*TNode] {
 			if !isElement {
 				// Generate a text node. Limit string complexity.
 				text := rapid.String().Draw(r, "textData")
-				return createNode(text, xpath.TextNode)
+				return createNode(text, TextNode)
 			}
 
 			// Generate an element node.
 			tag := rapid.SampledFrom(htmlTags).Draw(r, "tag")
-			node := createNode(tag, xpath.ElementNode)
+			node := createNode(tag, ElementNode)
 
 			// Add attributes sometimes.
 			if rapid.Bool().Draw(r, "hasAttrs") {
@@ -155,7 +153,7 @@ func TestPropertyXPathCrash(t *testing.T) {
 		// 1. Generate a random document tree
 		// Need to ensure the root is suitable for navigation (e.g., wrap in a document node?)
 		// createNavigator expects a TNode root. Let's generate an element as root.
-		rootNode := genTNode().Filter(func(n *TNode) bool { return n.Type == xpath.ElementNode }).Draw(t, "doc")
+		rootNode := genTNode().Filter(func(n *TNode) bool { return n.Type == ElementNode }).Draw(t, "doc")
 		// Wrap the root element in a document node? The tests seem to use element nodes directly as roots.
 		// Let's stick with element root for now.
 
@@ -166,7 +164,7 @@ func TestPropertyXPathCrash(t *testing.T) {
 
 		// 3. Compile the expression
 		// We expect panics to be caught by rapid.Check
-		expr, err := xpath.Compile(exprStr)
+		expr, err := Compile(exprStr)
 		if err != nil {
 			// Skip if compilation fails - we're looking for runtime crashes.
 			// Or potentially log it as an interesting case (generator bug?).
@@ -195,7 +193,7 @@ func nodeToString(node *TNode) string {
 	printNode = func(n *TNode, indent int) {
 		sb.WriteString(strings.Repeat("  ", indent))
 		switch n.Type {
-		case xpath.ElementNode:
+		case ElementNode:
 			sb.WriteString("<" + n.Data)
 			for _, attr := range n.Attr {
 				sb.WriteString(fmt.Sprintf(" %s=%q", attr.Key, attr.Value))
@@ -210,11 +208,11 @@ func nodeToString(node *TNode) string {
 				sb.WriteString(strings.Repeat("  ", indent))
 				sb.WriteString("</" + n.Data + ">\n")
 			}
-		case xpath.TextNode:
+		case TextNode:
 			sb.WriteString(fmt.Sprintf("%q\n", n.Data))
-		case xpath.CommentNode:
+		case CommentNode:
 			sb.WriteString(fmt.Sprintf("<!--%s-->\n", n.Data))
-		case xpath.DocumentNode:
+		case DocumentNode:
 			sb.WriteString("Document:\n")
 			for child := n.FirstChild; child != nil; child = child.NextSibling {
 				printNode(child, indent+1)
