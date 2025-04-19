@@ -585,7 +585,7 @@ func TestPropertyXPathDifferential(testingT *testing.T) {
 		//     // Just iterate to trigger potential panics
 		// }
 	}) // Remove the NumRuns option here
-	t.Logf("TestPropertyXPathDifferential finished.")
+	testingT.Logf("TestPropertyXPathDifferential finished.") // Use testingT here
 }
 
 // Helper function to serialize the TNode tree to a string suitable for xmllint.
