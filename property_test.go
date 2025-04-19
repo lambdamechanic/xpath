@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -468,12 +467,12 @@ func genXPathExpr() *rapid.Generator[string] {
 
 // TestPropertyXPathDifferential checks for panics, compilation errors, and mismatches
 // against xmllint (libxml2) for string evaluations.
-func TestPropertyXPathDifferential(t *testing.T) {
-	checkXmllintAvailability(t)                 // Skip if xmllint is not available
-	t.Log("Starting TestPropertyXPathDifferential...") // Log entry into the test function
+func TestPropertyXPathDifferential(testingT *testing.T) {
+	checkXmllintAvailability(testingT)                 // Skip if xmllint is not available
+	testingT.Log("Starting TestPropertyXPathDifferential...") // Log entry into the test function
 
 	// Pass configuration options directly to Check
-	rapid.Check(t, func(t *rapid.T) {
+	rapid.Check(testingT, func(t *rapid.T) { // Pass testingT to Check, use t for rapid.T
 		// 1. Generate a random document tree (must be an element for nodeToXMLString)
 		// createNavigator expects a TNode root. Let's generate an element as root.
 		rootNode := genTNode.Filter(func(n *TNode) bool { return n.Type == ElementNode }).Draw(t, "doc")
@@ -496,10 +495,10 @@ func TestPropertyXPathDifferential(t *testing.T) {
 
 		// 4. Serialize document to XML and write to temp file
 		xmlString := nodeToXMLString(rootNode)
-		tmpDir := t.TempDir() // Create a temporary directory cleaned up automatically
+		tmpDir := testingT.TempDir() // Use testingT to call TempDir
 		tmpFile, err := os.CreateTemp(tmpDir, "xpath-test-*.xml")
 		if err != nil {
-			t.Fatalf("Failed to create temp file: %v", err)
+			testingT.Fatalf("Failed to create temp file: %v", err) // Use testingT for logging
 		}
 		// No need to defer Remove, t.TempDir() handles cleanup.
 		// Defer tmpFile.Close() // Close the file handle when done
@@ -507,11 +506,11 @@ func TestPropertyXPathDifferential(t *testing.T) {
 		_, err = tmpFile.WriteString(xmlString)
 		if err != nil {
 			tmpFile.Close() // Close before failing
-			t.Fatalf("Failed to write to temp file: %v", err)
+			testingT.Fatalf("Failed to write to temp file: %v", err) // Use testingT for logging
 		}
 		err = tmpFile.Close() // Close after writing
 		if err != nil {
-			t.Fatalf("Failed to close temp file: %v", err)
+			testingT.Fatalf("Failed to close temp file: %v", err) // Use testingT for logging
 		}
 		tmpFilePath := tmpFile.Name()
 
@@ -539,15 +538,15 @@ func TestPropertyXPathDifferential(t *testing.T) {
 			// If xmllint failed for reasons other than "no result", log details.
 			// If it's an XPath error (11), it might indicate an issue antchfx didn't catch.
 			// If it's an XML error (1-9), our serialization might be wrong.
-			t.Logf("xmllint failed (exit code %d) for expr %q on file %s:\nStderr: %s\nStdout: %s\nXML Content:\n%s",
+			testingT.Logf("xmllint failed (exit code %d) for expr %q on file %s:\nStderr: %s\nStdout: %s\nXML Content:\n%s", // Use testingT for logging
 				exitCode, wrappedExprStr, tmpFilePath, xmllintStderr.String(), xmllintStdout.String(), xmlString)
 			// Decide whether to fail based on exit code. Let's fail on XML errors (1-9) and XPath errors (11, 12).
 			if exitCode >= 1 && exitCode <= 9 || exitCode == 11 || exitCode == 12 {
-				t.Fatalf("xmllint execution failed unexpectedly (see log).")
+				testingT.Fatalf("xmllint execution failed unexpectedly (see log).") // Use testingT for logging
 			}
 			// Otherwise (e.g., other cmdErr, non-ExitError), treat as setup failure.
 			if !(exitCode == 0 || exitCode == 10) { // Allow 0 (success) and 10 (no result)
-				t.Fatalf("xmllint command execution failed: %v\nStderr: %s", cmdErr, xmllintStderr.String())
+				testingT.Fatalf("xmllint command execution failed: %v\nStderr: %s", cmdErr, xmllintStderr.String()) // Use testingT for logging
 			}
 		}
 		xmllintResult := xmllintStdout.String()
@@ -556,7 +555,7 @@ func TestPropertyXPathDifferential(t *testing.T) {
 		wrappedExprAntchfx, err := Compile(wrappedExprStr)
 		if err != nil {
 			// If the original compiled but the wrapped one doesn't, it's an internal issue or generator bug.
-			t.Fatalf("Failed to compile wrapped expr %q with antchfx/xpath (original %q compiled ok): %v\nDocument XML:\n%s",
+			testingT.Fatalf("Failed to compile wrapped expr %q with antchfx/xpath (original %q compiled ok): %v\nDocument XML:\n%s", // Use testingT for logging
 				wrappedExprStr, exprStr, err, xmlString)
 		}
 		nav := createNavigator(rootNode) // Create navigator for antchfx
@@ -566,13 +565,13 @@ func TestPropertyXPathDifferential(t *testing.T) {
 		antchfxResultStr, ok := antchfxEvalResult.(string)
 		if !ok {
 			// string() function should always return string type.
-			t.Fatalf("antchfx/xpath evaluation of wrapped expr %q did not return a string, got %T: %+v\nOriginal expr: %q\nDocument XML:\n%s",
+			testingT.Fatalf("antchfx/xpath evaluation of wrapped expr %q did not return a string, got %T: %+v\nOriginal expr: %q\nDocument XML:\n%s", // Use testingT for logging
 				wrappedExprStr, antchfxEvalResult, antchfxEvalResult, exprStr, xmlString)
 		}
 
 		// 8. Compare xmllint and antchfx string results
 		if xmllintResult != antchfxResultStr {
-			t.Fatalf("Mismatch between xmllint and antchfx/xpath for string(%q):\nxmllint: %q\nantchfx: %q\nDocument XML:\n%s",
+			testingT.Fatalf("Mismatch between xmllint and antchfx/xpath for string(%q):\nxmllint: %q\nantchfx: %q\nDocument XML:\n%s", // Use testingT for logging
 				exprStr, xmllintResult, antchfxResultStr, xmlString)
 		}
 
