@@ -155,7 +155,8 @@ func genXPathExpr() *rapid.Generator[string] {
 
 // TestPropertyXPathCrash checks if evaluating random XPath expressions on random documents causes panics.
 func TestPropertyXPathCrash(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
+	t.Log("Starting TestPropertyXPathCrash...") // Log entry into the test function
+	rapid.Check(t, rapid.Run[*rapid.T]().NumRuns(1000), func(t *rapid.T) {
 		// 1. Generate a random document tree
 		// Need to ensure the root is suitable for navigation (e.g., wrap in a document node?)
 		// createNavigator expects a TNode root. Let's generate an element as root.
