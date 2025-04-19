@@ -15,7 +15,8 @@ var htmlTags = []string{"div", "p", "span", "a", "b", "i", "table", "tr", "td"}
 var htmlAttrs = []string{"id", "class", "href", "title", "style"}
 
 // genTNode generates a random TNode tree resembling simple HTML.
-var genTNode *rapid.Generator[*TNode] // Declare upfront for recursion
+// Declared at package level to allow recursive definition in init().
+var genTNode *rapid.Generator[*TNode]
 
 func init() {
 	genTNode = rapid.Custom(func(t *rapid.T) *TNode {
