@@ -253,8 +253,8 @@ func genSimpleFunctionCall() *rapid.Generator[string] {
 			"sum", "translate", "true",
 			// Added from README (potentially XPath 2.0+)
 			"ends-with", "lower-case", "matches", "replace", "reverse", "string-join",
-			// "lang", // Keep lang? README says unsupported, but code might handle it. Let's keep it.
-			"lang",
+			// lang() is explicitly marked as unsupported (✗) in the README.
+			// "lang",
 		}).Draw(t, "funcName")
 
 		// Generate arguments based on the function
@@ -314,9 +314,9 @@ func genSimpleFunctionCall() *rapid.Generator[string] {
 			// For simplicity, use a relative path or another simple function for now.
 			arg := rapid.OneOf(genRelativePathExpr, rapid.Just("true()"), rapid.Just("false()")).Draw(t, "boolArg1")
 			args = arg
-		case "lang": // 1 argument (string)
-			numArgs = 1
-			args = genStringLiteral().Draw(t, "langArg1")
+		// case "lang": // Removed as it's unsupported by the library.
+		// 	numArgs = 1
+		// 	args = genStringLiteral().Draw(t, "langArg1")
 		// Functions with no arguments:
 		case "true", "false", "position", "last":
 			numArgs = 0
